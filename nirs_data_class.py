@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 
-"""Container for handling NIRS data"""
+"""General linear model for NIRS"""
 
 # Authors: Anna Padée <anna.padee@unifr.ch>
 #
 # License: BSD-3-Clause
-
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -372,8 +371,7 @@ class NIRSData:
         if mode == "time" or mode == "FFT":
             nsamples = self.oxyChannels[:, range_low:range_high].shape[1]
         elif mode == "average":
-            if self.averaged_oxy is None:
-                self.average_data(condition=condition)
+            self.average_data(condition=condition)
             nsamples = self.averaged_oxy.shape[1]
 
         # formatting x axis in seconds or Hz
@@ -525,11 +523,6 @@ class NIRSData:
                 plt.ylabel("% of spectral power in heartbeat range")
                 plt.axhline(y=hr_cutoff_factor * HRcontribution.max(), color='r')
             plt.xlabel("Channels")
-
-
-
-
-
         return self.bad_channels
 
     def remove_bad_channels(self):
@@ -538,9 +531,7 @@ class NIRSData:
         :return:
         """
         self.remove_channels(self.bad_channels)
-
         log.info("Bad channel removal complete.")
-        self.bad_channels = []
         return
 
     def remove_channels(self, ch_indices):
@@ -552,10 +543,14 @@ class NIRSData:
         idx = sorted(ch_indices)
         self.oxyChannels = np.delete(self.oxyChannels, idx, axis=0)
         self.deoxyChannels = np.delete(self.deoxyChannels, idx, axis=0)
+        if self.averaged_oxy is not None:
+            self.averaged_oxy = np.delete(self.averaged_oxy, idx, axis=0)
+        if self.averaged_deoxy is not None:
+            self.averaged_deoxy = np.delete(self.averaged_deoxy, idx, axis=0)
         self.sources = np.delete(self.sources, idx)
         self.detectors = np.delete(self.detectors, idx)
         self.channel_distance = np.delete(self.channel_distance, idx)
-        self.region_labels = np.delete(self.region_labels, idx)
+        self.region_labels = np.delete(self.region_labels, idx, axis=0)
         self.xyz = np.delete(self.xyz, idx, axis=0)
         self.chLabels = np.delete(self.chLabels, idx)
         self.n_ch = self.oxyChannels.shape[0]
@@ -564,6 +559,12 @@ class NIRSData:
                 self.m_artifacts.pop(i)
             if i in self.short_channels_ind:
                 self.short_channels_ind = np.delete(self.short_channels_ind, np.where(self.short_channels_ind == i))
+            if i in self.bad_channels:
+                self.bad_channels = np.delete(self.bad_channels, np.where(self.bad_channels == i))
+        for i, sch in enumerate(self.short_channels_ind):
+            self.short_channels_ind[i] -= np.where(ch_indices < sch)[0].shape[0]
+        for i, bch in enumerate(self.bad_channels):
+            self.bad_channels[i] -= np.where(ch_indices < bch)[0].shape[0]
         self.channel_mapping = {}
         for i in range(self.n_ch):
             self.channel_mapping[self.chLabels[i]] = i

@@ -50,7 +50,7 @@ def butter_lowpass_filter(data: np.ndarray, cutoff: float, fs: float, order: int
     return result
 
 
-def plot_lowpass_response(cutOff: float, fs: float, order: int):
+def plot_lowpass_response(cutoff: float, fs: float, order: int):
     """
     Plot the lowpass filter response in frequency domain
     Args:
@@ -60,13 +60,13 @@ def plot_lowpass_response(cutOff: float, fs: float, order: int):
     Returns:
         None
     """
-    b, a = butter_lowpass(cutOff, fs, order)
+    b, a = butter_lowpass(cutoff, fs, order)
     w, h = freqz(b, a)
     fig = plt.figure()
     fig.canvas.set_window_title('Lowpass filter response')
     plt.plot(0.5*fs*w/np.pi, np.abs(h), 'b')
-    plt.plot(cutOff, 0.5 * np.sqrt(2), 'ko')
-    plt.axvline(cutOff, color='k')
+    plt.plot(cutoff, 0.5 * np.sqrt(2), 'ko')
+    plt.axvline(cutoff, color='k')
     plt.xlim(0, 0.5 * fs)
     plt.title("Filter response")
     plt.xlabel('Freq[Hz]')
@@ -114,18 +114,18 @@ def butter_bandpass_filter(data: np.ndarray, cut_low: float, cut_high: float, fs
     return result
 
 
-def plot_bandpass_response(cut_low: float, cut_high: float, fs: float, filterOrder: int):
+def plot_bandpass_response(cut_low: float, cut_high: float, fs: float, order: int):
     """
     Plot the bandpass filter response in frequency domain
     Args:
         cut_low: lower cuttoff frequency in Hz
         cut_high: upper cuttoff frequency in Hz
         fs: sample frequency in Hz
-        filterOrder: order of the filter
+        order: order of the filter
     Returns:
         None
     """
-    b, a = butter_bandpass(cut_low, cut_high, fs, filterOrder)
+    b, a = butter_bandpass(cut_low, cut_high, fs, order)
     w, h = freqz(b, a)
     fig = plt.figure()
     fig.canvas.set_window_title('Bandpass filter response')

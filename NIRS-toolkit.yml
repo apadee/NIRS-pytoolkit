@@ -1,0 +1,12 @@
+name: NIRS-toolkit
+channels:
+- conda-forge
+dependencies:
+- python>=3.8
+- numpy
+- scipy
+- matplotlib
+- pandas
+- scikit-learn
+- statsmodels
+- jupyter

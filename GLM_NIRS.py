@@ -12,10 +12,8 @@ from math import factorial
 
 import scipy
 from sklearn.linear_model import LinearRegression
-from nilearn.glm.first_level import run_glm
 import scipy.stats as stats
 from statsmodels.tsa.stattools import acf
-from nilearn.glm.contrasts import compute_contrast as _cc
 
 
 class GLM_NIRS:
@@ -118,63 +116,7 @@ class GLM_NIRS:
 
         t_dist = stats.t(df_error)
         self.result_pval = 1 - t_dist.cdf(self.result_tstat)
-#        self.result_pval = np.empty(data.shape[0])
-#        for i in range(data.shape[0]):
-#            self.result_pval[i] = 1 - t_dist.cdf(self.result_tstat[i])
         return self.result_beta, self.result_res_er, self.result_tstat
-
-    def old_fit(self, input, do_whitening=False):
-        if np.linalg.matrix_rank(self.design_matrix) != self.design_matrix.shape[1]:
-            raise Warning("Design matrix rank is too low: {}".format(np.linalg.matrix_rank(self.design_matrix)))
-
-        if do_whitening:
-            data = self.prewhiten(input)
-        else:
-            data = np.copy(input)
-        data = np.atleast_2d(data)
-        self.result_beta = np.empty((data.shape[0], self.design_matrix.shape[1]))
-        self.result_var_e = np.empty(data.shape[0])
-        self.result_tstat = np.empty(data.shape[0])
-        self.result_pval = np.empty(data.shape[0])
-
-        nTpts = data.shape[1]
-        for i in range(data.shape[0]):
-            self.beta_hat = np.linalg.inv(self.design_matrix.T.dot(self.design_matrix)).dot(self.design_matrix.T).dot(data[i, :])
-            Var_e = (data[i, :] - self.design_matrix.dot(self.beta_hat)).T.dot((data[i, :] -
-                        self.design_matrix.dot(self.beta_hat)) / (nTpts - np.linalg.matrix_rank(self.design_matrix)))
-            print("Channel: \t", i)
-            print("Beta: \t", self.beta_hat)
-            c = [0] * self.design_matrix.shape[1]
-            c[0] = 1
-            c = np.array(c, ndmin=2).T
-            t_stat = c.T * self.beta_hat / np.sqrt(Var_e * c.T.dot(np.linalg.inv(self.design_matrix.T.dot(self.design_matrix)).dot(c)))
-            print("t stat: \t", t_stat)
-            self.result_beta[i, :] = self.beta_hat
-            self.result_var_e[i] = Var_e
-            self.result_tstat[i] = t_stat[0][0]
-            df_error = nTpts - np.linalg.matrix_rank(self.design_matrix)
-            t_dist = stats.t(df_error)
-            self.result_pval[i] = 1 - t_dist.cdf(t_stat[0][0])
-
-        return self.result_beta, self.result_var_e, self.result_tstat
-
-    def fit_nilearn(self, input, do_whitening=False, noise_model='ar1'):
-        if do_whitening:
-            data = self.prewhiten(input)
-        else:
-            data = np.copy(input)
-        labels, glm_estimates = run_glm(data.T, self.design_matrix, noise_model=noise_model)
-        results = glm_estimates[labels[0]]
-
-        print("Estimate:", glm_estimates[labels[0]].theta[0], "  MSE:", glm_estimates[labels[0]].MSE,
-              "  Error (uM):", 1e6 * (glm_estimates[labels[0]].theta[0] - 4 * 1e-6))
-
-        c = [-1] * self.design_matrix.shape[1]
-        c[0] = 1
-        contrast = np.array(c, ndmin=2)
-
-
-        return _cc(labels, results, contrast, contrast_type=None)
 
     def show_design(self, savepath=None):
         t = np.arange(0, self.HRF.shape[0] / self.fs, 1 / self.fs)
