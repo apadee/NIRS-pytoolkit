@@ -21,6 +21,13 @@ log = logging.getLogger('nirs_data')
 logging.basicConfig(level=logging.INFO)
 
 
+def arg_array(fn):
+    def decorated_function(self, data):
+        array = np.asarray(data)
+        return fn(self, array)
+    return decorated_function
+
+
 class NIRSData:
     """
     NIRS data class.
@@ -34,7 +41,8 @@ class NIRSData:
         trigger : paradigm-related events
         trigger_block : Block paradigm, 1-for condition present, 0 for baseline
         channel_distance : source-detector distance for each channel
-        default_labels : Default labels for oxyhemoglobin, deoxyhemoglobin, source and detector. User for plotting.
+        default_labels : Default labels for oxyhemoglobin, deoxyhemoglobin,
+                         source and detector. User for plotting.
         datafile : Path to the datafile
         sources : Source number for each channel
         detectors : Detector number for each channel
@@ -66,7 +74,8 @@ class NIRSData:
         self.trigger = None
         self.trigger_block = None
         self.channel_distance = None
-        self.default_labels = {'oxy': ' O2Hb', 'deoxy': ' HHb', 'src': 'Source ', 'det': 'Detector '}
+        self.default_labels = {'oxy': ' O2Hb', 'deoxy': ' HHb',
+                               'src': 'Source ', 'det': 'Detector '}
         self.datafile = ""
         self.sources = []
         self.detectors = []
@@ -91,14 +100,17 @@ class NIRSData:
 
         self._plot_no = 0
 
-    def read_homer2(self, filepath: str=None, ext_coeff_file="extinction_coeff.txt"):
+    def read_homer2(self, filepath: str = None,
+                    ext_coeff_file="extinction_coeff.txt"):
         """
         Load homer2 *.nirs file.
         Args:
-            filepath: File location. If none, searches location set in nirs_data.datafile
-            ext_coeff_file: A file with extinction coefficients in [cm-1/(moles/liter)] for each wavelength.
-            The file has to contain columns: wavelength, e for HbO, e for Hb
-
+            filepath: File location. If none, searches location
+                      set in nirs_data.datafile
+            ext_coeff_file: A file with extinction coefficients
+                            in [cm-1/(moles/liter)] for each wavelength.
+                            The file has to contain columns:
+                            wavelength, e for HbO, e for Hb
         Returns: None
         """
         if filepath is None:
@@ -107,7 +119,8 @@ class NIRSData:
             self.datafile = filepath
 
         if not os.path.isfile(filepath):
-            log.error("File path {} does not exist. Exiting...".format(filepath))
+            log.error("File path {} does not exist. "
+                      "Exiting...".format(filepath))
             sys.exit()
 
         data_file = loadmat(filepath, appendmat=False)
@@ -116,20 +129,22 @@ class NIRSData:
         self.sources = channel_info[:, 0] - 1
         self.detectors = channel_info[:, 1] - 1
         channel_wav_lens = channel_info[:, 3] - 1
-        log.info("{ns} sources, {nd} detectors found".format(ns=np.unique(self.sources).shape[0], nd=np.unique(self.detectors).shape[0]))
+        log.info("{ns} sources, {nd} detectors found".format(
+            ns=np.unique(self.sources).shape[0],
+            nd=np.unique(self.detectors).shape[0]))
         self.wavelengths = data_file['SD'][0][0][1].flatten()
 
         self.srcPos = data_file['SD'][0][0][2]
         self.detPos = data_file['SD'][0][0][3]
-        SpatialUnits = data_file['SD'][0][0][6][0]
-        self.xyz = self.srcPos[self.sources] - 0.5 * (self.srcPos[self.sources] - self.detPos[self.detectors])
+        spatial_units = data_file['SD'][0][0][6][0]
+        self.xyz = self.srcPos[self.sources] - 0.5 * \
+                   (self.srcPos[self.sources] - self.detPos[self.detectors])
         channel_dist = self.srcPos[self.sources] - self.detPos[self.detectors]
         self.channel_distance = np.linalg.norm(channel_dist, axis=1)
 
-
-        if re.match("mm", SpatialUnits):
+        if re.match("mm", spatial_units):
             self.channel_distance *= 10
-        elif not re.match("cm", SpatialUnits):
+        elif not re.match("cm", spatial_units):
             raise ValueError("Unrecognized spatial units in the datafile")
 
         self.fs = len(data_file['t'][0]) / data_file['t'][0][-1]
@@ -139,41 +154,50 @@ class NIRSData:
 
         self.n_ch = int(self.raw_data.shape[1] / self.wavelengths.shape[0])
         e_coeffs = np.loadtxt(ext_coeff_file)
-        log.info("Absorption coefficients loaded from: {}".format(ext_coeff_file))
+        log.info("Absorption coefficients loaded "
+                 "from: {}".format(ext_coeff_file))
 
         e = np.empty((self.wavelengths.shape[0], 2))
         for i in range(self.wavelengths.shape[0]):
-            e[i, 0] = e_coeffs[np.where(e_coeffs[:, 0] == self.wavelengths[i])[0], 1] #HbO2
-            e[i, 1] = e_coeffs[np.where(e_coeffs[:, 0] == self.wavelengths[i])[0], 2] #Hb
+            e[i, 0] = e_coeffs[np.where(e_coeffs[:, 0] ==
+                                        self.wavelengths[i])[0], 1] #HbO2
+            e[i, 1] = e_coeffs[np.where(e_coeffs[:, 0] ==
+                                        self.wavelengths[i])[0], 2] #Hb
 
         e = e * 2.303 * 150 / 66.500
 
         self.oxyChannels = np.empty((self.n_ch, self.raw_data.shape[0]))
         self.deoxyChannels = np.empty((self.n_ch, self.raw_data.shape[0]))
         for i in range(self.n_ch):
-            OD = np.vstack((self.raw_data[:, i], self.raw_data[:, self.n_ch + i]))
+            OD = np.vstack((self.raw_data[:, i],
+                            self.raw_data[:, self.n_ch + i]))
             x = np.linalg.solve(e*self.channel_distance[i], OD)
             self.oxyChannels[i] = np.copy(x[0, :])
             self.deoxyChannels[i] = np.copy(x[1, :])
-            self.chLabels.append(self.default_labels['src'] + str(self.sources[i] + 1) + "-" +
-                                  self.default_labels['det'] + str(self.detectors[i] + 1))
+            self.chLabels.append(self.default_labels['src'] +
+                                 str(self.sources[i] + 1) + "-" +
+                                 self.default_labels['det'] +
+                                 str(self.detectors[i] + 1))
             self.channel_mapping[self.chLabels[i]] = i
 
         self.sources = self.sources[:self.n_ch]
         self.detectors = self.detectors[:self.n_ch]
         self.channel_distance = self.channel_distance[:self.n_ch]
         self.xyz = self.xyz[:self.n_ch]
-        self.short_channels_ind = np.where(self.channel_distance < np.mean(self.channel_distance) -
+        self.short_channels_ind = np.where(self.channel_distance <
+                                           np.mean(self.channel_distance) -
                                            2 * np.std(self.channel_distance))[0]
 
         self.region_labels = np.empty(self.n_ch, dtype=str)
         self.chLabels = np.array(self.chLabels).astype(str)
 
-        log.info("Delta OD successfully converted to O2Hb and HHb concentraion changes. {ch} channels, {tp} timepoints "
-                 "loaded".format(ch=self.oxyChannels.shape[0], tp=self.oxyChannels.shape[1]))
-        log.info("Recording time: {} s".format('%.2f' % (self.oxyChannels.shape[1]/self.fs)))
+        log.info("Delta OD successfully converted to O2Hb and "
+                 "HHb concentraion changes. {ch} channels, {tp} timepoints "
+                 "loaded".format(ch=self.oxyChannels.shape[0],
+                                 tp=self.oxyChannels.shape[1]))
+        log.info("Recording time: "
+                 "{} s".format('%.2f' % (self.oxyChannels.shape[1]/self.fs)))
         return
-
 
     def read_artinis_file(self, filepath: str=None, null_marker="NULL"):
         """
@@ -181,14 +205,18 @@ class NIRSData:
         Args:
             filepath: Path to the data textfile
         Returns:
-            channelData (numpy.ndarray): Array of data values; Two columns (O2Hb and HHb) for each channel
-            params (dict): Metadata dictionary. Includes sampling rate in Hz, datafile duration in seconds
+            channelData (numpy.ndarray): Array of data values; Two columns
+                                         (O2Hb and HHb) for each channel
+            params (dict): Metadata dictionary. Includes sampling rate in Hz,
+                           datafile duration in seconds
                         and channel labels for each column in the data array.
-            events (list): Events (keyboard interrupts) list. The format of one entry is [int, str] with int being sample
-            number on which the event occurred and string containing the event info (type and timestamp)
+            events (list): Events (keyboard interrupts) list. The format of one
+                           entry is [int, str] with int being sample
+                           number on which the event occurred and string
+                           containing the event info (type and timestamp)
         """
 
-        if filepath == None:
+        if filepath is None:
             filepath = self.datafile
 
         if not os.path.isfile(filepath):
@@ -199,30 +227,34 @@ class NIRSData:
         fd = open(filepath)
 
         columnLabels = []
-        # Import metadata: so far only sampling frequency, runtime and channel labels
+        # Import metadata: sampling frequency, runtime and channel labels
 
         line = fd.readline()
         while line:
             line = fd.readline()
             if re.match("Datafile duration:", line):
-                self.params['Datafile duration'] = re.findall("\d+\.\d+", line)[0]
+                self.params['Datafile duration'] = re.findall("\d+\.\d+",
+                                                              line)[0]
             if re.match("Export sample rate:", line):
-                self.params['Export sample rate'] = re.findall("\d+\.\d+", line)[0]
+                self.params['Export sample rate'] = re.findall("\d+\.\d+",
+                                                               line)[0]
             if re.match("1\W+(Sample number)", line):
                 break
         while line:
             line = fd.readline()
-            if (re.match("^\d+\W+[A-Za-z\[\]]+", line) and not re.match(".*(Event)", line)):
+            if (re.match("^\d+\W+[A-Za-z\[\]]+", line) and not
+                re.match(".*(Event)", line)):
                 columnLabels.append(" ".join(line.split()[1:]))
                 if " ".join(line.split()[1:-2]) not in self.chLabels:
                     self.chLabels.append(" ".join(line.split()[1:-2]))
             # Stops when data begins: on the line with just column numbers
-            if (re.match("(\d+\t*)+$", line)):
+            if re.match("(\d+\t*)+$", line):
                 break
         self.params['Legend'] = columnLabels
 
         numberOfColumns = len(line.split())
-        # one column is sample numbers, one is for events, the rest are O2Hb and HHb values for each channel
+        # one column is sample numbers, one is for events,
+        # the rest are O2Hb and HHb values for each channel
         self.n_ch = (len(line.split()) - 2) / 2
 
         plainTextData = []
@@ -232,11 +264,13 @@ class NIRSData:
             plainTextData.append(line.split())
             line = fd.readline()
 
-        # Get numerical values for each channel, move event data to the separate dictionary
+        # Get numerical values for each channel, move event
+        # data to the separate dictionary
         channelData = []
         for i in plainTextData:
-            # in case of an event (keyboard interrupt) artinis appends date and time to the line, making it longer
-            # This check is for this timestamp; The extra columns are then removed
+            # in case of an event (keyboard interrupt) artinis appends date
+            # and time to the line, making it longer.
+            # This check is for this timestamp; Extra columns are then removed
             if (len(i) > numberOfColumns or i[-1] != null_marker):
                 event = [int(i[0]), " ".join(i[numberOfColumns - 1:])]
                 self.events.append(event)
@@ -263,9 +297,12 @@ class NIRSData:
 
         self.fs = float(self.params['Export sample rate'])
 
-        log.info("Artinis text file successfully imported. {ch} channels, {tp} timepoints "
-                 "loaded".format(ch=self.oxyChannels.shape[0], tp=self.oxyChannels.shape[1]))
-        log.info("Recording time: {} s".format('%.2f' % (self.oxyChannels.shape[1] / self.fs)))
+        log.info("Artinis text file successfully imported. "
+                 "{ch} channels, {tp} timepoints "
+                 "loaded".format(ch=self.oxyChannels.shape[0],
+                                 tp=self.oxyChannels.shape[1]))
+        log.info("Recording time: "
+                 "{} s".format('%.2f' % (self.oxyChannels.shape[1] / self.fs)))
 
         return channelData
 
@@ -469,8 +506,8 @@ class NIRSData:
             fig.tight_layout()
         return
 
-    def mark_bad_channels(self, byHbeatPresence=True, byVariance=False, cutoff_var_factor=0.75,
-                          hr_f_range=(0.7, 1.5), hr_cutoff_factor=0.75, doPlot=False):
+    def mark_bad_channels(self, byHbeatPresence=True, byVariance=False, cutoff_var_factor=0.5,
+                          hr_f_range=(0.7, 1.5), hr_cutoff_factor=0.5, doPlot=False):
         """
         Finding possibly noisy channels based either:
          - relative variance of oxy hemoglobin to deoxy hemoglobin changes
@@ -489,40 +526,45 @@ class NIRSData:
         """
         self.bad_channels = []
         HRcontribution = np.empty(self.oxyChannels.shape[0])
+        VARcontribution = np.empty(self.oxyChannels.shape[0])
         if byHbeatPresence:
-
             f = np.fft.rfftfreq(self.oxyChannels.shape[1]) * self.fs
             subset = np.where((f > hr_f_range[0]) & (f < hr_f_range[1]))[0]
         for i in range(0, int(self.oxyChannels.shape[0])):
             if byVariance:
-                print(np.std(self.deoxyChannels[i]) / np.std(self.oxyChannels[i]))
-                if np.std(self.deoxyChannels[i]) > cutoff_var_factor * np.std(self.oxyChannels[i]):
+                if np.std(self.deoxyChannels[i]) > cutoff_var_factor * np.std(self.oxyChannels[i]) and not byHbeatPresence:
                     self.bad_channels.append(i)
-                HRcontribution[i] = np.std(self.deoxyChannels[i]) / np.std(self.oxyChannels[i])
+                VARcontribution[i] = np.std(self.deoxyChannels[i]) / np.std(self.oxyChannels[i])
             if byHbeatPresence:
                 spec = np.abs(np.fft.rfft((self.oxyChannels[i, :] - np.mean(self.oxyChannels[i, :]))/np.var(self.oxyChannels[i, :])))
                 HRcontribution[i] = np.sum(spec[subset]) / np.sum(spec[np.where(f > 0.2)[0]])
-        print(HRcontribution)
-
         if byHbeatPresence:
             log.info("Bad channel selection based on heartbeat presence: maximum heartrate contribution in "
                          "the requested range = {}%".format('%.2f' % (100*max(HRcontribution))))
             for i in range(0, int(self.oxyChannels.shape[0])):
-                #if i not in self.bad_channels and HRcontribution[i] < (np.mean(HRcontribution) - HR_factor * np.std(HRcontribution)):
-                if i not in self.bad_channels and HRcontribution[i] < (hr_cutoff_factor * HRcontribution.max()):
-                    self.bad_channels.append(i)
+                if not byVariance:
+                    if HRcontribution[i] < (hr_cutoff_factor * HRcontribution.max()):
+                        self.bad_channels.append(i)
+                else:
+                    if HRcontribution[i] < (hr_cutoff_factor * HRcontribution.max()) and \
+                            VARcontribution[i] > cutoff_var_factor:
+                        self.bad_channels.append(i)
         log.info("Bad channel selection finished. {} channels marked as bad.".format(len(self.bad_channels)))
         if doPlot:
-            plt.figure()
-            plt.plot(HRcontribution)
-            plt.grid()
-            if byVariance:
-                plt.ylabel("Deoxy/Oxy hemoglobin variance")
-                plt.axhline(y=cutoff_var_factor, color='r')
             if byHbeatPresence:
+                plt.figure()
+                plt.plot(HRcontribution)
+                plt.grid()
                 plt.ylabel("% of spectral power in heartbeat range")
                 plt.axhline(y=hr_cutoff_factor * HRcontribution.max(), color='r')
-            plt.xlabel("Channels")
+                plt.xlabel("Channels")
+            if byVariance:
+                plt.figure()
+                plt.plot(VARcontribution)
+                plt.grid()
+                plt.ylabel("Deoxy/Oxy hemoglobin variance")
+                plt.axhline(y=cutoff_var_factor, color='r')
+                plt.xlabel("Channels")
         return self.bad_channels
 
     def remove_bad_channels(self):
@@ -534,12 +576,14 @@ class NIRSData:
         log.info("Bad channel removal complete.")
         return
 
+    @arg_array
     def remove_channels(self, ch_indices):
         """
         Removal of the data by given indices
         :return:
         """
-        #need to update channel mapping
+        if ch_indices.size == 0:
+            return
         idx = sorted(ch_indices)
         self.oxyChannels = np.delete(self.oxyChannels, idx, axis=0)
         self.deoxyChannels = np.delete(self.deoxyChannels, idx, axis=0)
